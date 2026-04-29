@@ -1,0 +1,33 @@
+{
+  "name": "@matrix/mcp",
+  "version": "0.0.1",
+  "description": "A local, project-scoped task management MCP server",
+  "homepage": "https://github.com/aminfara/matrix#readme",
+  "keywords": [
+    "mcp",
+    "task management",
+    "multi-agent",
+    "multi-session",
+    "sqlite",
+    "project manager"
+  ],
+  "bugs": {
+    "url": "https://github.com/aminfara/matrix/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aminfara/matrix.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --project jsconfig.json --noEmit",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "@tsconfig/node-lts": "^24.0.0",
+    "@tsconfig/strictest": "^2.0.8",
+    "@types/node": "^24.12.2",
+    "typescript": "^6.0.3"
+  }
+}
