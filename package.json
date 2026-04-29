@@ -1,5 +1,5 @@
 {
-  "name": "@matrix/mcp",
+  "name": "matrix-mcp",
   "version": "0.0.1",
   "description": "A local, project-scoped Requirement Management MCP server",
   "homepage": "https://github.com/aminfara/matrix#readme",
@@ -21,6 +21,12 @@
   },
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "matrix-mcp": "./src/server.js"
+  },
+  "files": [
+    "src/"
+  ],
   "scripts": {
     "typecheck": "tsc --project jsconfig.json --noEmit",
     "test": "vitest run"

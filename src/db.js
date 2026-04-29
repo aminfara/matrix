@@ -10,7 +10,12 @@ const DEFAULT_DB_PATH = '.matrix/matrix.db';
 
 /**
  * Resolve the database file path from the environment or default.
- * Supports both absolute and relative paths (resolved from cwd).
+ *
+ * The path is resolved relative to process.cwd(), which must be the project
+ * root. MCP clients that spawn this server must set the `cwd` field in their
+ * server config to the project directory. Alternatively, set MATRIX_DB_PATH
+ * to an absolute path to override the location entirely.
+ *
  * @returns {string} Absolute path to the database file.
  */
 function resolveDbPath() {
