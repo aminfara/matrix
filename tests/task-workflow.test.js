@@ -237,6 +237,25 @@ describe('task workflow service', () => {
     expect(released.assignedTo).toBeUndefined();
   });
 
+  it('force_release_task triggers recompute: req returns to ToDo', () => {
+    const t = taskSvc.createTask({
+      parentReqId,
+      title: 'T',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    wfSvc.pickTask({ taskId: t.id, agentId: 'agent-1' });
+    const inProgressReq = reqSvc.getRequirement({ id: parentReqId });
+    expect(inProgressReq.status).toBe('InProgress');
+
+    wfSvc.forceReleaseTask({ taskId: t.id });
+
+    const req = reqSvc.getRequirement({ id: parentReqId });
+    expect(req.status).toBe('ToDo');
+  });
+
   it('force_release_task fails TASK_NOT_IN_PROGRESS if task is ToDo', () => {
     const t = taskSvc.createTask({
       parentReqId,

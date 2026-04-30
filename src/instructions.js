@@ -55,6 +55,18 @@ a manually-Done requirement resets it to ToDo and resumes auto-recompute.
 
 ---
 
+## Field Constraints
+
+| Field | Limit |
+|---|---|
+| title | max 100 chars |
+| description | max 1000 chars |
+| acceptanceCriteria item | max 256 chars |
+| dependencies | max 50 items |
+| agentId | max 256 chars |
+
+---
+
 ## Tool Reference
 
 ### Requirements

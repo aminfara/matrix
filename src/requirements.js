@@ -1,5 +1,6 @@
 import { nextId } from './db.js';
 import { matrixError } from './errors.js';
+import { parseAcceptanceCriteria } from './task-helpers.js';
 
 /**
  * @typedef {import('./models.js').CreateRequirementInput} CreateRequirementInput
@@ -233,21 +234,6 @@ export function getRequirementsService(db) {
 // ---------------------------------------------------------------------------
 
 /**
- * @param {SqlRow} row
- * @returns {string[]}
- */
-function parseAcceptanceCriteria(row) {
-  const raw = row['acceptance_criteria'];
-  if (typeof raw !== 'string') return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string} requirementId
  * @returns {string[]}
@@ -367,14 +353,15 @@ function replaceRequirementDependencies(db, requirementId, dependencies) {
 function canReachRequirement(db, start, target) {
   const visited = new Set();
   const queue = [start];
+  const nextReqDepsStmt = db.prepare(
+    'SELECT to_req_id FROM requirement_dependencies WHERE from_req_id = ?'
+  );
   while (queue.length > 0) {
     const current = /** @type {string} */ (queue.shift());
     if (current === target) return true;
     if (visited.has(current)) continue;
     visited.add(current);
-    const rows = db
-      .prepare('SELECT to_req_id FROM requirement_dependencies WHERE from_req_id = ?')
-      .all(current);
+    const rows = nextReqDepsStmt.all(current);
     for (const row of rows) {
       const next = row['to_req_id'];
       if (typeof next === 'string') queue.push(next);

@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db.js';
 import { getRequirementsService } from '../src/requirements.js';
 import { getTasksService } from '../src/tasks.js';
+import { getTaskWorkflowService } from '../src/task-workflow.js';
 
 /** @returns {import('node:sqlite').DatabaseSync} */
 function makeDb() {
@@ -18,6 +19,8 @@ describe('tasks service', () => {
   let reqSvc;
   /** @type {ReturnType<typeof getTasksService>} */
   let taskSvc;
+  /** @type {ReturnType<typeof getTaskWorkflowService>} */
+  let wfSvc;
   /** @type {string} */
   let parentReqId;
 
@@ -25,6 +28,7 @@ describe('tasks service', () => {
     db = makeDb();
     reqSvc = getRequirementsService(db);
     taskSvc = getTasksService(db);
+    wfSvc = getTaskWorkflowService(db);
     const req = reqSvc.createRequirement({
       title: 'Parent',
       description: '',
@@ -233,6 +237,15 @@ describe('tasks service', () => {
       acceptanceCriteria: [],
       dependencies: [],
     });
+
+    wfSvc.pickTask({ taskId: t1.id, agentId: 'agent-1' });
+    const inProgressReq = reqSvc.getRequirement({ id: parentReqId });
+    expect(inProgressReq.status).toBe('InProgress');
+
+    wfSvc.completeTask({ taskId: t1.id, agentId: 'agent-1' });
+    const doneReq = reqSvc.getRequirement({ id: parentReqId });
+    expect(doneReq.status).toBe('Done');
+
     taskSvc.deleteTask({ id: t1.id });
     const req = reqSvc.getRequirement({ id: parentReqId });
     // No tasks → ToDo
@@ -275,5 +288,121 @@ describe('tasks service', () => {
     });
     const next = taskSvc.nextTask({ agentId: 'agent-1' });
     expect(next?.id).toBe(high.id);
+  });
+
+  it('nextTask skips requirements blocked by unmet requirement dependency', () => {
+    const blockerReq = reqSvc.createRequirement({
+      title: 'Blocker',
+      description: '',
+      priority: 2,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const blockedReq = reqSvc.createRequirement({
+      title: 'Blocked',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [blockerReq.id],
+    });
+
+    taskSvc.createTask({
+      parentReqId: blockedReq.id,
+      title: 'Blocked task',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const unblockedTask = taskSvc.createTask({
+      parentReqId: blockerReq.id,
+      title: 'Unblocked task',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    const next = taskSvc.nextTask({ agentId: 'agent-1' });
+    expect(next?.id).toBe(unblockedTask.id);
+  });
+
+  it('nextTask returns null when all available tasks are InProgress', () => {
+    const req2 = reqSvc.createRequirement({
+      title: 'R2',
+      description: '',
+      priority: 2,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    const t1 = taskSvc.createTask({
+      parentReqId,
+      title: 'T1',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const t2 = taskSvc.createTask({
+      parentReqId: req2.id,
+      title: 'T2',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    wfSvc.pickTask({ taskId: t1.id, agentId: 'agent-1' });
+    wfSvc.pickTask({ taskId: t2.id, agentId: 'agent-2' });
+
+    const next = taskSvc.nextTask({ agentId: 'agent-3' });
+    expect(next).toBeNull();
+  });
+
+  it('listTasks filters by status', () => {
+    const doneTask = taskSvc.createTask({
+      parentReqId,
+      title: 'Done task',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    taskSvc.createTask({
+      parentReqId,
+      title: 'Todo task',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    wfSvc.pickTask({ taskId: doneTask.id, agentId: 'agent-1' });
+    wfSvc.completeTask({ taskId: doneTask.id, agentId: 'agent-1' });
+
+    const done = taskSvc.listTasks({ parentReqId, status: 'Done' });
+    expect(done.map((task) => task.id)).toEqual([doneTask.id]);
+  });
+
+  it('listRequirements filters by priority', () => {
+    reqSvc.createRequirement({
+      title: 'Priority 1',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const priority2 = reqSvc.createRequirement({
+      title: 'Priority 2',
+      description: '',
+      priority: 2,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    reqSvc.createRequirement({
+      title: 'Priority 3',
+      description: '',
+      priority: 3,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    const requirements = reqSvc.listRequirements({ priority: 2 });
+    expect(requirements.map((req) => req.id)).toEqual([priority2.id]);
   });
 });

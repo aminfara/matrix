@@ -21,6 +21,9 @@
   },
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "bin": {
     "matrix-mcp": "./src/server.js"
   },
@@ -40,7 +43,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "nanoid": "^5.1.9",
     "zod": "^4.3.6"
   }
 }

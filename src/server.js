@@ -6,8 +6,6 @@ import { AGENT_INSTRUCTIONS } from './instructions.js';
 import { openDatabase } from './db.js';
 import { registerTools } from './tools.js';
 
-const db = openDatabase();
-
 // Create server instance
 const server = new McpServer(
   {
@@ -20,9 +18,10 @@ const server = new McpServer(
   }
 );
 
-registerTools(server, db);
-
 async function main() {
+  const db = openDatabase();
+  registerTools(server, db);
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('MATRIX MCP Server running on stdio');

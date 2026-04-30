@@ -148,13 +148,20 @@ export function getTasksService(db) {
 
       const parentReqId = String(existing['parent_req_id']);
       const deletedTask = mapTaskRow(db, existing);
-      const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(input.id);
-      if (Number(result.changes) === 0) {
-        throw matrixError('INTERNAL_ERROR', `Task not deleted: ${input.id}`);
-      }
+      db.exec('BEGIN');
+      try {
+        const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(input.id);
+        if (Number(result.changes) === 0) {
+          throw matrixError('INTERNAL_ERROR', `Task not deleted: ${input.id}`);
+        }
 
-      // Recompute parent requirement status after deletion
-      recomputeRequirementStatus(db, parentReqId);
+        // Recompute parent requirement status after deletion
+        recomputeRequirementStatus(db, parentReqId);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
 
       return deletedTask;
     },
@@ -189,7 +196,6 @@ export function getTasksService(db) {
       return rows.map((row) => mapTaskRow(db, /** @type {SqlRow} */ (row)));
     },
 
-    // eslint-disable-next-line no-unused-vars
     nextTask: (_input) => {
       // 1. Find unblocked requirements (not Done, all dep reqs are Done), sorted by priority.
       const eligibleReqs = db
@@ -208,28 +214,28 @@ export function getTasksService(db) {
         )
         .all();
 
+      const nextEligibleTaskStmt = db.prepare(
+        `SELECT t.id, t.parent_req_id, t.title, t.description, t.status,
+                t.acceptance_criteria, t.assigned_to, t.created_at, t.updated_at
+         FROM tasks t
+         WHERE t.parent_req_id = ?
+           AND t.status = 'ToDo'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM task_dependencies td
+             JOIN tasks dep ON dep.id = td.to_task_id
+             WHERE td.from_task_id = t.id
+               AND dep.status != 'Done'
+           )
+         ORDER BY t.created_at ASC
+         LIMIT 1`
+      );
+
       for (const reqRow of eligibleReqs) {
         const reqId = String(reqRow['id']);
 
         // 2. Find the first ToDo task in this requirement whose dep tasks are all Done.
-        const taskRow = db
-          .prepare(
-            `SELECT t.id, t.parent_req_id, t.title, t.description, t.status,
-                    t.acceptance_criteria, t.assigned_to, t.created_at, t.updated_at
-             FROM tasks t
-             WHERE t.parent_req_id = ?
-               AND t.status = 'ToDo'
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM task_dependencies td
-                 JOIN tasks dep ON dep.id = td.to_task_id
-                 WHERE td.from_task_id = t.id
-                   AND dep.status != 'Done'
-               )
-             ORDER BY t.created_at ASC
-             LIMIT 1`
-          )
-          .get(reqId);
+        const taskRow = nextEligibleTaskStmt.get(reqId);
 
         if (taskRow) {
           return mapTaskRow(db, /** @type {SqlRow} */ (taskRow));
@@ -284,9 +290,7 @@ function replaceTaskDependencies(db, taskId, parentReqId, dependencies) {
     )
     .all(parentReqId, ...dependencies);
 
-  const allowedIds = new Set(
-    rows.map((r) => r['id']).filter((v) => typeof v === 'string')
-  );
+  const allowedIds = new Set(rows.map((r) => r['id']).filter((v) => typeof v === 'string'));
 
   for (const depId of dependencies) {
     if (!allowedIds.has(depId)) {
@@ -328,14 +332,15 @@ function replaceTaskDependencies(db, taskId, parentReqId, dependencies) {
 function canReachTask(db, start, target) {
   const visited = new Set();
   const queue = [start];
+  const nextTaskDepsStmt = db.prepare(
+    'SELECT to_task_id FROM task_dependencies WHERE from_task_id = ?'
+  );
   while (queue.length > 0) {
     const current = /** @type {string} */ (queue.shift());
     if (current === target) return true;
     if (visited.has(current)) continue;
     visited.add(current);
-    const rows = db
-      .prepare('SELECT to_task_id FROM task_dependencies WHERE from_task_id = ?')
-      .all(current);
+    const rows = nextTaskDepsStmt.all(current);
     for (const row of rows) {
       const next = row['to_task_id'];
       if (typeof next === 'string') queue.push(next);

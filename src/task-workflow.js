@@ -30,13 +30,6 @@ export function getTaskWorkflowService(db) {
         throw matrixError('NOT_FOUND', `Task not found: ${input.taskId}`);
       }
 
-      if (String(row['status']) !== 'ToDo') {
-        throw matrixError(
-          'TASK_NOT_OPEN',
-          `Task is not open: ${input.taskId} (status: ${row['status']})`
-        );
-      }
-
       // Check all task dependencies are Done
       const unsatisfiedTaskDeps = db
         .prepare(
@@ -75,11 +68,35 @@ export function getTaskWorkflowService(db) {
       }
 
       const now = new Date().toISOString();
-      db.prepare(
-        `UPDATE tasks SET status = 'InProgress', assigned_to = ?, updated_at = ? WHERE id = ?`
-      ).run(input.agentId, now, input.taskId);
+      let result;
+      db.exec('BEGIN');
+      try {
+        result = db
+          .prepare(
+            `UPDATE tasks
+             SET status = 'InProgress', assigned_to = ?, updated_at = ?
+             WHERE id = ? AND status = 'ToDo'`
+          )
+          .run(input.agentId, now, input.taskId);
+        if (Number(result.changes) > 0) {
+          recomputeRequirementStatus(db, parentReqId);
+        }
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
 
-      recomputeRequirementStatus(db, parentReqId);
+      if (Number(result.changes) === 0) {
+        const current = getTaskRowById(db, input.taskId);
+        if (!current) {
+          throw matrixError('NOT_FOUND', `Task not found: ${input.taskId}`);
+        }
+        throw matrixError(
+          'TASK_NOT_OPEN',
+          `Task is not open: ${input.taskId} (status: ${current['status']})`
+        );
+      }
 
       const updated = getTaskRowById(db, input.taskId);
       if (!updated)
@@ -108,12 +125,18 @@ export function getTaskWorkflowService(db) {
       }
 
       const now = new Date().toISOString();
-      db.prepare(
-        `UPDATE tasks SET status = 'Done', assigned_to = NULL, updated_at = ? WHERE id = ?`
-      ).run(now, input.taskId);
-
       const parentReqId = String(row['parent_req_id']);
-      recomputeRequirementStatus(db, parentReqId);
+      db.exec('BEGIN');
+      try {
+        db.prepare(
+          `UPDATE tasks SET status = 'Done', assigned_to = NULL, updated_at = ? WHERE id = ?`
+        ).run(now, input.taskId);
+        recomputeRequirementStatus(db, parentReqId);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
 
       const updated = getTaskRowById(db, input.taskId);
       if (!updated)
@@ -142,12 +165,18 @@ export function getTaskWorkflowService(db) {
       }
 
       const now = new Date().toISOString();
-      db.prepare(
-        `UPDATE tasks SET status = 'ToDo', assigned_to = NULL, updated_at = ? WHERE id = ?`
-      ).run(now, input.taskId);
-
       const parentReqId = String(row['parent_req_id']);
-      recomputeRequirementStatus(db, parentReqId);
+      db.exec('BEGIN');
+      try {
+        db.prepare(
+          `UPDATE tasks SET status = 'ToDo', assigned_to = NULL, updated_at = ? WHERE id = ?`
+        ).run(now, input.taskId);
+        recomputeRequirementStatus(db, parentReqId);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
 
       const updated = getTaskRowById(db, input.taskId);
       if (!updated)
@@ -169,12 +198,18 @@ export function getTaskWorkflowService(db) {
       }
 
       const now = new Date().toISOString();
-      db.prepare(
-        `UPDATE tasks SET status = 'ToDo', assigned_to = NULL, updated_at = ? WHERE id = ?`
-      ).run(now, input.taskId);
-
       const parentReqId = String(row['parent_req_id']);
-      recomputeRequirementStatus(db, parentReqId);
+      db.exec('BEGIN');
+      try {
+        db.prepare(
+          `UPDATE tasks SET status = 'ToDo', assigned_to = NULL, updated_at = ? WHERE id = ?`
+        ).run(now, input.taskId);
+        recomputeRequirementStatus(db, parentReqId);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
 
       const updated = getTaskRowById(db, input.taskId);
       if (!updated)

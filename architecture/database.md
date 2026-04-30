@@ -72,6 +72,8 @@ erDiagram
 | Directory    | Auto-created via `mkdirSync(..., { recursive: true })`       |
 | Permissions  | `0o600` (owner read/write only) set on first creation        |
 
+> **Security:** `MATRIX_DB_PATH` accepts absolute paths. Treat it as a trusted configuration value — do not derive it from untrusted user input.
+
 ---
 
 ## Tables
@@ -86,6 +88,8 @@ Tracks which migration versions have been applied. Acts as a guard in `runMigrat
 | `applied_at` | TEXT    | NOT NULL — ISO 8601 timestamp |
 
 **Rule:** Never modify an existing `MIGRATIONS` entry. Append new ones only. The `version` integer is the sole ordering key.
+
+**Atomicity:** Each migration is applied in its own `BEGIN`/`COMMIT`/`ROLLBACK` block — the migration SQL and the corresponding `INSERT INTO migrations` succeed or fail together. A crash mid-migration leaves no partial record, so the migration will be retried on next startup.
 
 ---
 
@@ -200,6 +204,20 @@ The two reverse-lookup indexes (`idx_req_deps_to`, `idx_task_deps_to`) are the m
 
 ---
 
+## Transactions
+
+Write operations that mutate multiple tables, or combine a data change with a status recompute, are wrapped in explicit `BEGIN`/`COMMIT`/`ROLLBACK` blocks:
+
+| Operation                                                     | What is atomic                                    |
+| ------------------------------------------------------------- | ------------------------------------------------- |
+| `pickTask`, `completeTask`, `releaseTask`, `forceReleaseTask` | Task status update + `recomputeRequirementStatus` |
+| `deleteTask`                                                  | Task deletion + `recomputeRequirementStatus`      |
+| Each migration in `runMigrations`                             | Migration SQL + `INSERT INTO migrations` record   |
+
+Read operations and single-statement writes rely on SQLite's implicit per-statement transactions.
+
+---
+
 ## SQLite Pragmas
 
 Applied at every connection open, before any query:
@@ -296,4 +314,4 @@ const MIGRATIONS = [
 
 - **Never modify an existing migration.** If a migration has been applied to any database, changing it will silently diverge that database from the new definition. The version number will already be recorded as applied and the change will never run.
 - **Always append new migrations** with the next integer version number.
-- Migrations run in a single `db.exec()` call — they are not individually wrapped in explicit transactions, but SQLite wraps multi-statement `exec` calls atomically when `journal_mode = WAL` is active.
+- Migrations run in a single `db.exec()` call. Each statement executes in SQLite's autocommit mode — there is no implicit wrapping into a single transaction. Partial failure mid-migration is safe in practice because every `CREATE` statement uses `IF NOT EXISTS` and every `INSERT` uses `OR IGNORE`, so re-running on next startup leaves the database in a consistent state. WAL mode affects concurrent access, not single-connection autocommit behaviour.

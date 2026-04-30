@@ -2,6 +2,10 @@
 
 **Multi-Agent Task & Requirement IndeX** — A local, project-scoped Requirement Management MCP server for multi-agent, multi-session work. Think of it as a lightweight local project manager, backed by SQLite, that AI agents can connect to via the Model Context Protocol.
 
+## Requirements
+
+- **Node.js ≥ 22.5.0** — required for the built-in `node:sqlite` module
+
 ## Installation & Configuration
 
 MATRIX is project-scoped: each project gets its own `.matrix/matrix.db` database. The server resolves the DB path relative to its working directory (`process.cwd()`), so **you must set `cwd` to your project root** in your MCP client config.

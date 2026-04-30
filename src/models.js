@@ -8,11 +8,14 @@ export const titleSchema = z
 export const descriptionSchema = z.string().max(1000, 'Description cannot exceed 1000 characters');
 export const statusSchema = z.enum(['ToDo', 'InProgress', 'Done']);
 export const prioritySchema = z.number().int().min(1).max(5);
-export const dependenciesSchema = z.array(idSchema);
+export const dependenciesSchema = z.array(idSchema).max(50);
 export const acceptanceCriteriaSchema = z.array(
   z.string().max(256, 'Acceptance criteria cannot exceed 256 characters')
 );
-export const agentIdSchema = z.string().min(1, 'agent_id cannot be empty');
+export const agentIdSchema = z
+  .string()
+  .min(1, 'agent_id cannot be empty')
+  .max(256, 'agent_id cannot exceed 256 characters');
 
 // Main Models
 // ------------------------------------------------------------------

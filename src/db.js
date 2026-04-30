@@ -20,6 +20,15 @@ const DEFAULT_DB_PATH = '.matrix/matrix.db';
  */
 function resolveDbPath() {
   const raw = process.env['MATRIX_DB_PATH'] ?? DEFAULT_DB_PATH;
+  // SECURITY: LOW [path-traversal] If MATRIX_DB_PATH is set to an absolute path (e.g.
+  // "/etc/sensitive"), resolve() will honour it and ignore process.cwd(), allowing the
+  // DB file to be created outside the project directory. Risk is low because this env
+  // var is set by the user in their MCP client config and they already have equivalent
+  // filesystem access. For defence-in-depth, consider rejecting absolute paths or paths
+  // that resolve outside process.cwd() when an absolute path is undesired.
+  // Fix needed: validate that resolve(cwd, raw) starts with process.cwd() when a relative
+  // path is intended, or document clearly that absolute paths are supported by design.
+  // Owner: Toby | First seen: 2026-04-30 | Tracking: n/a
   return resolve(process.cwd(), raw);
 }
 
@@ -155,11 +164,18 @@ function runMigrations(db) {
   for (const migration of MIGRATIONS) {
     if (appliedVersions.has(migration.version)) continue;
 
-    db.exec(migration.sql);
-    db.prepare('INSERT INTO migrations (version, applied_at) VALUES (?, ?)').run(
-      migration.version,
-      new Date().toISOString()
-    );
+    db.exec('BEGIN');
+    try {
+      db.exec(migration.sql);
+      db.prepare('INSERT INTO migrations (version, applied_at) VALUES (?, ?)').run(
+        migration.version,
+        new Date().toISOString()
+      );
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
 
     console.error(`[matrix] Applied migration v${migration.version}`);
   }
