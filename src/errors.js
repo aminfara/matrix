@@ -18,6 +18,8 @@
  * @typedef {Error & { code: MatrixErrorCode }} MatrixError
  */
 
+export const MATRIX_ERROR_SYMBOL = Symbol('MatrixError');
+
 /**
  * Creates a structured MatrixError with an error code attached.
  *
@@ -29,5 +31,7 @@ export function matrixError(code, message) {
   const err = new Error(message);
   // @ts-ignore — augmenting Error with code
   err.code = code;
+  // @ts-ignore — augmenting Error with marker symbol
+  err[MATRIX_ERROR_SYMBOL] = true;
   return /** @type {MatrixError} */ (err);
 }

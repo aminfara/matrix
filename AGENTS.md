@@ -6,13 +6,21 @@
 - `architecture/` — System architecture docs (managed by Archie)
   - `database.md` — DB schema, tables, indexes, pragmas, design decisions
   - `overview.md` — Module map, tool catalogue, error-handling model
-- `src/` — Source code (server, db, models, requirements, tasks, task-workflow, task-helpers, tools, errors, instructions)
+  - `interface.md` — CLI + Web UI architecture, file map, route table, library choices
+- `src/` — Source code (server, db, models, requirements, tasks, task-workflow, task-helpers, tools, errors, instructions) plus `interface/` sub-folder for CLI + web UI
+- `src/interface/` — CLI (`matrix-mcp-cli`) and embedded web server for human users
+  - `cli.js` — Entry point binary; `commander` + `@inquirer/prompts`; DB path resolution
+  - `commands/` — CLI handlers for requirements, tasks, workflow; shared `utils.js`
+  - `web/` — Express app (`server.js`) + server-side rendered HTML views (`views/`)
 - `tests/` — Unit tests (vitest, in-memory SQLite)
 
 ## Development Setup
 
 - **Install:** `npm install`
-- **Start dev server:** `node src/server.js` (or via MCP client config)
+- **Start MCP server:** `node src/server.js` (or via MCP client config)
+- **Start CLI:** `node src/interface/cli.js --help` (or `matrix-mcp-cli` after `npm link`)
+- **Start web UI:** `node src/interface/cli.js serve [--port 3000]` — binds to `127.0.0.1` only
+- **DB path (CLI):** `--matrix-db-path` arg > `MATRIX_DB_PATH` env var > `.matrix/matrix.db`
 - **Node.js required:** ≥ 22.5.0 (requires `node:sqlite` built-in)
 - **Environment variables:** `MATRIX_DB_PATH` — override default DB path (`.matrix/matrix.db` relative to cwd)
 
@@ -20,11 +28,11 @@
 
 - **Unit tests:** `npm test` (vitest, all tests use in-memory SQLite via `initDb`)
 - **Type check:** `npm run typecheck`
-- **Current coverage:** 55 unit tests across requirements, tasks, and task-workflow services. No integration (MCP tool layer) tests yet — see REQ-008.
+- **Current coverage:** 112 tests across 6 files — unit tests (requirements, tasks, task-workflow), MCP tool layer integration tests (`tests/tools.test.js`), interface service integration tests (`tests/interface-services.test.js`), and web server HTTP tests (`tests/web-server.test.js`).
 
 ## Build & Deploy
 
-- **Publish:** `npm publish` (package name: `matrix-mcp`, bin: `matrix-mcp → src/server.js`)
+- **Publish:** `npm publish` (package name: `matrix-mcp`, bins: `matrix-mcp → src/server.js`, `matrix-mcp-cli → src/interface/cli.js`)
 - **Run via npx:** `npx matrix-mcp` (run in project cwd so DB resolves correctly)
 
 ## Conventions

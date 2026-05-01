@@ -13,9 +13,8 @@ MATRIX (Multi-Agent Task & Requirement IndeX) is a local, project-scoped require
 
 ## Backlog
 
-| Req ID  | Title             | Func/Non-Func  | Priority | Status     | Summary                                                               | Link                  |
-| ------- | ----------------- | -------------- | -------- | ---------- | --------------------------------------------------------------------- | --------------------- |
-| REQ-008 | Automated Testing | Non-Functional | P0       | InProgress | Unit tests complete; integration tests (MCP tool layer) still pending | [REQ-008](REQ-008.md) |
+| Req ID | Title | Func/Non-Func | Priority | Status | Summary | Link |
+| ------ | ----- | ------------- | -------- | ------ | ------- | ---- |
 
 ## Done
 
@@ -28,6 +27,9 @@ MATRIX (Multi-Agent Task & Requirement IndeX) is a local, project-scoped require
 | REQ-005 | Dependency Management            | Functional     | P0       | 2026-04-29 | Req-to-req and task-to-task dependencies with validation and blocking  | [REQ-005](REQ-005.md) |
 | REQ-006 | Requirement Status Computation   | Functional     | P0       | 2026-04-29 | Auto-compute requirement status from task states, with manual override | [REQ-006](REQ-006.md) |
 | REQ-007 | Structured Error Responses       | Non-Functional | P0       | 2026-04-29 | MCP-compliant errors with machine-readable error codes                 | [REQ-007](REQ-007.md) |
+| REQ-008 | Automated Testing                | Non-Functional | P0       | 2026-05-01 | 112 tests total across 6 test files                                    | [REQ-008](REQ-008.md) |
 | REQ-009 | Smart Task Recommendation        | Functional     | P1       | 2026-04-29 | next_task tool that recommends the best available task                 | [REQ-009](REQ-009.md) |
 | REQ-010 | Admin Task Recovery              | Functional     | P1       | 2026-04-29 | force_release_task to recover stale locks from crashed agents          | [REQ-010](REQ-010.md) |
 | REQ-011 | Deletion Tools                   | Functional     | P1       | 2026-04-29 | delete_requirement (cascade) and delete_task                           | [REQ-011](REQ-011.md) |
+| REQ-012 | CLI Interface                    | Functional     | P1       | 2026-05-01 | Interactive CLI for viewing/managing reqs and tasks locally            | [REQ-012](REQ-012.md) |
+| REQ-013 | Web Interface                    | Functional     | P1       | 2026-05-01 | Embedded web server with simple UI to view and manage project          | [REQ-013](REQ-013.md) |

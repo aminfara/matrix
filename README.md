@@ -57,3 +57,20 @@ To store the database somewhere other than `<project-root>/.matrix/matrix.db`, s
   }
 }
 ```
+
+## Human Interface (CLI & Web)
+
+MATRIX also ships a `matrix-mcp-cli` CLI for humans to browse and manage the database directly.
+
+```bash
+matrix-mcp-cli --help
+```
+
+```bash
+matrix-mcp-cli list # lists requirements
+matrix-mcp-cli get req-00001
+matrix-mcp-cli pick tsk-00001 --agent my-agent
+matrix-mcp-cli serve --port 3000
+```
+
+DB path: `--matrix-db-path` flag > `MATRIX_DB_PATH` env var > `.matrix/matrix.db`
