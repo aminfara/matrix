@@ -45,9 +45,7 @@ export function getTasksService(db) {
       const now = new Date().toISOString();
       const id = nextId(db, 'tsk');
 
-      const description = input.description ?? '';
-      const acceptanceCriteria = input.acceptanceCriteria ?? [];
-      const dependencies = input.dependencies ?? [];
+      const { description = '', acceptanceCriteria = [], dependencies = [] } = input;
 
       db.exec('BEGIN');
       try {

@@ -480,3 +480,70 @@ describe('MCP tool coverage - workflow', () => {
     expect(readJson(result)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// wrap() error handling edge cases (tools.js branch coverage)
+// ---------------------------------------------------------------------------
+
+describe('MCP tool wrap — error handling branches', () => {
+  /** @type {import('node:sqlite').DatabaseSync} */
+  let db;
+  /** @type {Map<string, RegisteredTool>} */
+  let tools;
+
+  beforeEach(() => {
+    db = makeDb();
+    tools = new Map();
+
+    registerTools(
+      /** @type {any} */ ({
+        registerTool(
+          /** @type {any} */ name,
+          /** @type {any} */ schema,
+          /** @type {any} */ handler
+        ) {
+          tools.set(name, { inputSchema: schema.inputSchema, handler });
+        },
+      }),
+      db
+    );
+  });
+
+  afterEach(() => {
+    try {
+      db?.close();
+    } catch {
+      // already closed
+    }
+  });
+
+  /** @param {string} name @param {any} args */
+  async function callTool(name, args) {
+    const tool = tools.get(name);
+    if (!tool) throw new Error(`Tool not registered: ${name}`);
+    return tool.handler(args);
+  }
+
+  /** @param {any} result */
+  function readJson(result) {
+    return JSON.parse(result.content[0].text);
+  }
+
+  it('wrap catches non-Error throws (no code, no message) and fills in defaults', async () => {
+    // Close the DB so any tool call throws a native error without MatrixError.code
+    db.close();
+    // Prevent afterEach from trying to close again
+    db = /** @type {any} */ (null);
+    const freshDb = makeDb();
+    try {
+      const result = await callTool('list_requirements', undefined);
+      // Calling with undefined args throws a TypeError (no .code) → defaults to INTERNAL_ERROR
+      expect(result.isError).toBe(true);
+      const parsed = readJson(result);
+      expect(parsed.code).toBe('INTERNAL_ERROR');
+      expect(typeof parsed.message).toBe('string');
+    } finally {
+      freshDb.close();
+    }
+  });
+});

@@ -406,3 +406,285 @@ describe('tasks service', () => {
     expect(requirements.map((req) => req.id)).toEqual([priority2.id]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Defensive branch coverage using SQLite triggers
+// ---------------------------------------------------------------------------
+// These tests exercise lines unreachable in normal application flow.
+// ---------------------------------------------------------------------------
+
+describe('tasks — defensive branch coverage (trigger-based)', () => {
+  /** @type {import('node:sqlite').DatabaseSync} */
+  let db;
+  /** @type {ReturnType<typeof getRequirementsService>} */
+  let reqSvc;
+  /** @type {ReturnType<typeof getTasksService>} */
+  let taskSvc;
+  /** @type {string} */
+  let parentReqId;
+
+  beforeEach(() => {
+    db = makeDb();
+    reqSvc = getRequirementsService(db);
+    taskSvc = getTasksService(db);
+    const req = reqSvc.createRequirement({
+      title: 'Parent',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    parentReqId = req.id;
+  });
+
+  // -------------------------------------------------------------------------
+  // createTask: ROLLBACK branch (lines 76-77)
+  // -------------------------------------------------------------------------
+
+  it('createTask: ROLLBACK branch fires when INSERT throws inside transaction', () => {
+    // BEFORE INSERT trigger raises an error → INSERT fails → catch → ROLLBACK (lines 76-77).
+    db.exec(`
+      CREATE TRIGGER err_on_create_task
+      BEFORE INSERT ON tasks
+      BEGIN SELECT RAISE(ABORT, 'simulated insert failure'); END
+    `);
+
+    expect(() =>
+      taskSvc.createTask({
+        parentReqId,
+        title: 'T',
+        description: '',
+        acceptanceCriteria: [],
+        dependencies: [],
+      })
+    ).toThrow(/simulated insert failure/);
+    db.exec('DROP TRIGGER err_on_create_task');
+  });
+
+  // -------------------------------------------------------------------------
+  // createTask: !row guard after INSERT (line 84)
+  // -------------------------------------------------------------------------
+
+  it('createTask: INTERNAL_ERROR when row is missing after commit', () => {
+    // AFTER INSERT trigger deletes the row inside the same transaction.
+    // After COMMIT the row is gone → getTaskRowById returns null → INTERNAL_ERROR.
+    db.exec(`
+      CREATE TRIGGER del_after_task_insert
+      AFTER INSERT ON tasks
+      BEGIN DELETE FROM tasks WHERE id = NEW.id; END
+    `);
+
+    expect(() =>
+      taskSvc.createTask({
+        parentReqId,
+        title: 'T',
+        description: '',
+        acceptanceCriteria: [],
+        dependencies: [],
+      })
+    ).toThrow(/Task not found after create/);
+    db.exec('DROP TRIGGER del_after_task_insert');
+  });
+
+  // -------------------------------------------------------------------------
+  // updateTask: description ?? fallback (line 96)
+  // -------------------------------------------------------------------------
+
+  it('updateTask: description ?? fallback fires when description is omitted', () => {
+    const task = taskSvc.createTask({
+      parentReqId,
+      title: 'T',
+      description: 'original',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Omitting description → input.description is undefined → ?? String(existing['description'] ?? '')
+    const updated = taskSvc.updateTask({ id: task.id, title: 'Updated' });
+    expect(updated.description).toBe('original');
+  });
+
+  // -------------------------------------------------------------------------
+  // updateTask: !row guard after UPDATE (line 116)
+  // -------------------------------------------------------------------------
+
+  it('updateTask: INTERNAL_ERROR when row is missing after commit', () => {
+    const task = taskSvc.createTask({
+      parentReqId,
+      title: 'T',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // AFTER UPDATE trigger deletes the row; after COMMIT, getTaskRowById returns null.
+    db.exec(`
+      CREATE TRIGGER del_after_task_update
+      AFTER UPDATE ON tasks
+      BEGIN DELETE FROM tasks WHERE id = OLD.id; END
+    `);
+
+    expect(() => taskSvc.updateTask({ id: task.id, title: 'Updated' })).toThrow(
+      /Task not found after update/
+    );
+    db.exec('DROP TRIGGER del_after_task_update');
+  });
+
+  // -------------------------------------------------------------------------
+  // deleteTask: changes === 0 guard + ROLLBACK (lines 153, 160-161)
+  // -------------------------------------------------------------------------
+
+  it('deleteTask: INTERNAL_ERROR + ROLLBACK when DELETE returns 0 changes (lines 153, 160-161)', () => {
+    const task = taskSvc.createTask({
+      parentReqId,
+      title: 'To Delete',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // BEFORE DELETE trigger pre-deletes the row (recursive triggers OFF by default).
+    // Outer DELETE finds 0 rows → changes = 0 → INTERNAL_ERROR (line 153) → ROLLBACK (lines 160-161).
+    db.exec(`
+      CREATE TRIGGER pre_del_task
+      BEFORE DELETE ON tasks
+      BEGIN
+        DELETE FROM tasks WHERE id = OLD.id;
+      END
+    `);
+
+    expect(() => taskSvc.deleteTask({ id: task.id })).toThrow(/Task not deleted/);
+    db.exec('DROP TRIGGER pre_del_task');
+  });
+
+  // -------------------------------------------------------------------------
+  // canReachTask: visited.has() continue branch (line 339)
+  // -------------------------------------------------------------------------
+
+  it('canReachTask: visited.has() continue fires in diamond dependency graph', () => {
+    // Build diamond: T1→T2, T1→T3, T2→T4, T3→T4, T4→T5
+    // Then try T5→T1 (would create a cycle): BFS from T1 to T5 visits T4 twice.
+    // Second time T4 is dequeued, visited.has(T4) === true → continue (line 339).
+    const t1 = taskSvc.createTask({
+      parentReqId,
+      title: 'T1',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const t2 = taskSvc.createTask({
+      parentReqId,
+      title: 'T2',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const t3 = taskSvc.createTask({
+      parentReqId,
+      title: 'T3',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const t4 = taskSvc.createTask({
+      parentReqId,
+      title: 'T4',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const t5 = taskSvc.createTask({
+      parentReqId,
+      title: 'T5',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Set up diamond: T1 depends on T2 and T3; T2 depends on T4; T3 depends on T4; T4 depends on T5.
+    taskSvc.updateTask({ id: t1.id, dependencies: [t2.id, t3.id] });
+    taskSvc.updateTask({ id: t2.id, dependencies: [t4.id] });
+    taskSvc.updateTask({ id: t3.id, dependencies: [t4.id] });
+    taskSvc.updateTask({ id: t4.id, dependencies: [t5.id] });
+
+    // Adding T5→T1 would create a cycle (BFS from T1 can reach T5 → CIRCULAR_DEPENDENCY).
+    expect(() => taskSvc.updateTask({ id: t5.id, dependencies: [t1.id] })).toThrow(
+      expect.objectContaining({ code: 'CIRCULAR_DEPENDENCY' })
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // canReachTask: typeof next !== 'string' branch (line 344)
+  // -------------------------------------------------------------------------
+
+  it('canReachTask: non-string to_task_id is skipped during BFS', () => {
+    const t1 = taskSvc.createTask({
+      parentReqId,
+      title: 'T1',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const t2 = taskSvc.createTask({
+      parentReqId,
+      title: 'T2',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Disable FK enforcement to inject a BLOB dependency value.
+    // TEXT affinity converts integers to strings, but stores BLOBs as Uint8Array (type 'object').
+    // When canReachTask BFS processes T1's deps, it finds a Uint8Array;
+    // typeof Uint8Array === 'string' → false → skip push (line 344 false branch).
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.prepare('INSERT INTO task_dependencies (from_task_id, to_task_id) VALUES (?, ?)').run(
+      t1.id,
+      new Uint8Array([9, 9])
+    );
+    db.exec('PRAGMA foreign_keys = ON');
+
+    // updateTask(t2, {dependencies: [t1]}) triggers canReachTask(db, t1, t2).
+    // BFS from t1: T1's deps include BLOB → skipped → no cycle found → OK.
+    const updated = taskSvc.updateTask({ id: t2.id, dependencies: [t1.id] });
+    expect(updated.dependencies).toContain(t1.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // updateTask: existing description ?? '' (line 96)
+  //
+  // This branch requires the description column to allow NULL. We rebuild
+  // the tasks table without the NOT NULL constraint to simulate this
+  // defensive guard.
+  // -------------------------------------------------------------------------
+
+  it('updateTask: existing description ?? empty-string when description is NULL (line 96)', () => {
+    const task = taskSvc.createTask({
+      parentReqId,
+      title: 'T',
+      description: 'original',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Rebuild tasks table without NOT NULL on description.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`CREATE TABLE tasks_nullable (
+      id TEXT PRIMARY KEY,
+      parent_req_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'ToDo' CHECK (status IN ('ToDo', 'InProgress', 'Done')),
+      acceptance_criteria TEXT NOT NULL DEFAULT '[]',
+      assigned_to TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
+    db.exec('INSERT INTO tasks_nullable SELECT * FROM tasks');
+    db.exec('DROP TABLE tasks');
+    db.exec('ALTER TABLE tasks_nullable RENAME TO tasks');
+    db.exec('PRAGMA foreign_keys = ON');
+
+    db.prepare('UPDATE tasks SET description = NULL WHERE id = ?').run(task.id);
+    // Omit description → uses existing (null) → null ?? '' → '' (line 96 inner ?? branch)
+    const updated = taskSvc.updateTask({ id: task.id, title: 'Updated' });
+    expect(updated.description).toBe('');
+  });
+});

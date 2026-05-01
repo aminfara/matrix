@@ -19,7 +19,8 @@ const DEFAULT_DB_PATH = '.matrix/matrix.db';
  * @returns {string} Absolute path to the database file.
  */
 function resolveDbPath() {
-  const raw = process.env['MATRIX_DB_PATH'] ?? DEFAULT_DB_PATH;
+  // const raw = process.env['MATRIX_DB_PATH'] ?? DEFAULT_DB_PATH;
+  const { MATRIX_DB_PATH: raw = DEFAULT_DB_PATH } = process.env;
   // SECURITY: LOW [path-traversal] If MATRIX_DB_PATH is set to an absolute path (e.g.
   // "/etc/sensitive"), resolve() will honour it and ignore process.cwd(), allowing the
   // DB file to be created outside the project directory. Risk is low because this env

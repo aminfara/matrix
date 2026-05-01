@@ -413,3 +413,318 @@ describe('recomputeRequirementStatus', () => {
     expect(svc.getRequirement({ id: req.id }).status).toBe('Done');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Defensive branch coverage using SQLite triggers
+// ---------------------------------------------------------------------------
+// These tests exercise lines that are unreachable in normal application flow.
+// SQLite BEFORE DELETE triggers let us simulate the race conditions that would
+// cause a DELETE to report 0 changes after the pre-checks already passed.
+// ---------------------------------------------------------------------------
+
+describe('requirements — defensive branch coverage (trigger-based)', () => {
+  /** @type {import('node:sqlite').DatabaseSync} */
+  let db;
+  /** @type {ReturnType<typeof getRequirementsService>} */
+  let svc;
+
+  beforeEach(() => {
+    db = makeDb();
+    svc = getRequirementsService(db);
+  });
+
+  // -------------------------------------------------------------------------
+  // createRequirement optional-field defaults (lines 68-71)
+  // -------------------------------------------------------------------------
+
+  it('createRequirement: ?? defaults fire when optional fields are omitted', () => {
+    // @ts-expect-error — intentionally omitting optional fields to hit ?? branches
+    const req = svc.createRequirement({ title: 'Minimal' });
+    expect(req.description).toBe('');
+    expect(req.priority).toBe(3);
+    expect(req.acceptanceCriteria).toEqual([]);
+    expect(req.dependencies).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // createRequirement: !row guard after INSERT (line 89)
+  // -------------------------------------------------------------------------
+
+  it('createRequirement: INTERNAL_ERROR when row is missing after commit', () => {
+    // AFTER INSERT trigger deletes the row inside the same transaction.
+    // After COMMIT the row is gone → getRequirementRowById returns null → INTERNAL_ERROR.
+    db.exec(`
+      CREATE TRIGGER del_after_req_insert
+      AFTER INSERT ON requirements
+      BEGIN DELETE FROM requirements WHERE id = NEW.id; END
+    `);
+
+    expect(() =>
+      svc.createRequirement({
+        title: 'T',
+        description: '',
+        priority: 1,
+        acceptanceCriteria: [],
+        dependencies: [],
+      })
+    ).toThrow(/Requirement not found after create/);
+    db.exec('DROP TRIGGER del_after_req_insert');
+  });
+
+  // -------------------------------------------------------------------------
+  // updateRequirement: description ?? fallback (line 108)
+  // -------------------------------------------------------------------------
+
+  it('updateRequirement: description ?? fallback fires when description is omitted', () => {
+    const req = svc.createRequirement({
+      title: 'R',
+      description: 'original',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Omitting description → input.description is undefined → ?? String(existing['description'] ?? '')
+    const updated = svc.updateRequirement({ id: req.id, title: 'Updated' });
+    expect(updated.description).toBe('original');
+  });
+
+  // -------------------------------------------------------------------------
+  // updateRequirement: !row guard after UPDATE (line 143)
+  // -------------------------------------------------------------------------
+
+  it('updateRequirement: INTERNAL_ERROR when row is missing after commit', () => {
+    const req = svc.createRequirement({
+      title: 'R',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // AFTER UPDATE trigger deletes the row; after COMMIT, getRequirementRowById returns null.
+    db.exec(`
+      CREATE TRIGGER del_after_req_update
+      AFTER UPDATE ON requirements
+      BEGIN DELETE FROM requirements WHERE id = OLD.id; END
+    `);
+
+    expect(() => svc.updateRequirement({ id: req.id, title: 'Updated' })).toThrow(
+      /Requirement not found after update/
+    );
+    db.exec('DROP TRIGGER del_after_req_update');
+  });
+
+  // -------------------------------------------------------------------------
+  // deleteRequirement: changes === 0 guard + ROLLBACK (lines 183, 188-189)
+  // -------------------------------------------------------------------------
+
+  it('deleteRequirement: INTERNAL_ERROR + ROLLBACK when DELETE returns 0 changes', () => {
+    const req = svc.createRequirement({
+      title: 'To Delete',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // BEFORE DELETE trigger pre-deletes the row (recursive triggers are OFF by
+    // default, so the inner DELETE does not re-fire the trigger).
+    // The outer DELETE therefore finds 0 rows → changes = 0 → INTERNAL_ERROR.
+    db.exec(`
+      CREATE TRIGGER pre_del_req
+      BEFORE DELETE ON requirements
+      BEGIN
+        DELETE FROM requirements WHERE id = OLD.id;
+      END
+    `);
+
+    expect(() => svc.deleteRequirement({ id: req.id })).toThrow(/Requirement not deleted/);
+    db.exec('DROP TRIGGER pre_del_req');
+  });
+
+  // -------------------------------------------------------------------------
+  // mapRequirementRow: non-string date fallback (lines 268-269)
+  // -------------------------------------------------------------------------
+
+  it('mapRequirementRow: String(createdAt/updatedAt) fallback fires when dates are not strings', () => {
+    const req = svc.createRequirement({
+      title: 'R',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Store BLOB values; node:sqlite returns them as Uint8Array (type 'object'), not string.
+    // TEXT affinity converts integers to strings, but stores BLOBs as-is, so we must use Uint8Array.
+    db.prepare('UPDATE requirements SET created_at = ?, updated_at = ? WHERE id = ?').run(
+      new Uint8Array([1]),
+      new Uint8Array([2]),
+      req.id
+    );
+    const fetched = svc.getRequirement({ id: req.id });
+    expect(fetched.createdAt).toBeInstanceOf(Date);
+    expect(fetched.updatedAt).toBeInstanceOf(Date);
+  });
+
+  // -------------------------------------------------------------------------
+  // canReachRequirement: visited.has() continue branch (line 362)
+  // -------------------------------------------------------------------------
+
+  it('canReachRequirement: visited.has() continue fires in diamond dependency graph', () => {
+    // Build diamond: A→B, A→C, B→D, C→D, D→E
+    // Then try E→A (would create a cycle): BFS from A to E visits D twice.
+    // Second time D is dequeued, visited.has(D) === true → continue (line 362).
+    const a = svc.createRequirement({
+      title: 'A',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const b = svc.createRequirement({
+      title: 'B',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const c = svc.createRequirement({
+      title: 'C',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const d = svc.createRequirement({
+      title: 'D',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const e = svc.createRequirement({
+      title: 'E',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Set up diamond: A depends on B and C; B depends on D; C depends on D; D depends on E.
+    svc.updateRequirement({ id: a.id, dependencies: [b.id, c.id] });
+    svc.updateRequirement({ id: b.id, dependencies: [d.id] });
+    svc.updateRequirement({ id: c.id, dependencies: [d.id] });
+    svc.updateRequirement({ id: d.id, dependencies: [e.id] });
+
+    // Adding E→A would create a cycle (BFS from A can reach E → CIRCULAR_DEPENDENCY).
+    expect(() => svc.updateRequirement({ id: e.id, dependencies: [a.id] })).toThrow(
+      expect.objectContaining({ code: 'CIRCULAR_DEPENDENCY' })
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // canReachRequirement: typeof next !== 'string' branch (line 367)
+  // -------------------------------------------------------------------------
+
+  it('canReachRequirement: non-string to_req_id is skipped during BFS', () => {
+    const a = svc.createRequirement({
+      title: 'A',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const b = svc.createRequirement({
+      title: 'B',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Disable FK enforcement to inject a BLOB dependency value.
+    // TEXT affinity converts integers to strings, but stores BLOBs as Uint8Array (type 'object').
+    // When canReachRequirement BFS processes A's deps, it finds a Uint8Array;
+    // typeof Uint8Array === 'string' → false → skip push (line 367 false branch).
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.prepare('INSERT INTO requirement_dependencies (from_req_id, to_req_id) VALUES (?, ?)').run(
+      a.id,
+      new Uint8Array([9, 9])
+    );
+    db.exec('PRAGMA foreign_keys = ON');
+
+    // updateRequirement(b, {dependencies: [a]}) triggers canReachRequirement(db, a, b).
+    // BFS from a: A's deps include BLOB → skipped → no cycle found → OK.
+    const updated = svc.updateRequirement({ id: b.id, dependencies: [a.id] });
+    expect(updated.dependencies).toContain(a.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // mapRequirementRow: description ?? '' (line 263) and
+  // updateRequirement: existing description ?? '' (line 108)
+  //
+  // These branches require the description column to allow NULL. We rebuild
+  // the requirements table without the NOT NULL constraint to simulate this
+  // defensive guard. This is the only way to reach these branches without
+  // modifying the source code.
+  // -------------------------------------------------------------------------
+
+  it('mapRequirementRow: description ?? empty-string when description is NULL (line 263)', () => {
+    const req = svc.createRequirement({
+      title: 'R',
+      description: 'original',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Rebuild requirements table without NOT NULL on description.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`CREATE TABLE requirements_nullable (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'ToDo' CHECK (status IN ('ToDo', 'InProgress', 'Done')),
+      status_locked INTEGER NOT NULL DEFAULT 0 CHECK (status_locked IN (0, 1)),
+      priority INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+      acceptance_criteria TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
+    db.exec('INSERT INTO requirements_nullable SELECT * FROM requirements');
+    db.exec('DROP TABLE requirements');
+    db.exec('ALTER TABLE requirements_nullable RENAME TO requirements');
+    db.exec('PRAGMA foreign_keys = ON');
+
+    db.prepare('UPDATE requirements SET description = NULL WHERE id = ?').run(req.id);
+    const fetched = svc.getRequirement({ id: req.id });
+    expect(fetched.description).toBe(''); // null ?? '' → ''
+  });
+
+  it('updateRequirement: existing description ?? empty-string when description is NULL (line 108)', () => {
+    const req = svc.createRequirement({
+      title: 'R',
+      description: 'original',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    // Rebuild requirements table without NOT NULL on description.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`CREATE TABLE requirements_nullable (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'ToDo' CHECK (status IN ('ToDo', 'InProgress', 'Done')),
+      status_locked INTEGER NOT NULL DEFAULT 0 CHECK (status_locked IN (0, 1)),
+      priority INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+      acceptance_criteria TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
+    db.exec('INSERT INTO requirements_nullable SELECT * FROM requirements');
+    db.exec('DROP TABLE requirements');
+    db.exec('ALTER TABLE requirements_nullable RENAME TO requirements');
+    db.exec('PRAGMA foreign_keys = ON');
+
+    db.prepare('UPDATE requirements SET description = NULL WHERE id = ?').run(req.id);
+    // Omit description → uses existing (null) → null ?? '' → '' (line 108 inner ?? branch)
+    const updated = svc.updateRequirement({ id: req.id, title: 'Updated' });
+    expect(updated.description).toBe('');
+  });
+});

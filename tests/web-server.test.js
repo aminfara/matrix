@@ -300,6 +300,269 @@ describe('web server', () => {
     expect(task.assignedTo).toBeUndefined();
   });
 
+  // ---------------------------------------------------------------------------
+  // Empty-state views (views/requirements.js line 13 + line 69)
+  // ---------------------------------------------------------------------------
+
+  it('GET /requirements with empty DB returns empty-state HTML', async () => {
+    const freshDb = makeDb();
+    const freshApp = createApp(freshDb, { disableCsrf: true });
+    try {
+      const res = await request(freshApp).get('/requirements');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('No requirements yet');
+    } finally {
+      freshDb.close();
+    }
+  });
+
+  it('GET /requirements/:id with no tasks shows no-tasks message', async () => {
+    // Delete the seed task so the requirement has no tasks
+    taskSvc.deleteTask({ id: taskId });
+    const res = await request(app).get(`/requirements/${reqId}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('No tasks yet');
+  });
+
+  // ---------------------------------------------------------------------------
+  // parseList / acceptance-criteria / listItems non-empty (server.js + views)
+  // ---------------------------------------------------------------------------
+
+  it('POST /requirements with newline-separated acceptanceCriteria saves criteria', async () => {
+    const res = await request(app)
+      .post('/requirements')
+      .type('form')
+      .send({
+        title: 'With Criteria',
+        description: 'Some desc',
+        priority: '2',
+        acceptanceCriteria: 'First criterion\nSecond criterion',
+        dependencies: '',
+      });
+
+    expect(res.status).toBe(303);
+    const createdId = /** @type {string} */ (res.headers['location']).split('/').pop();
+    const created = reqSvc.getRequirement({ id: String(createdId) });
+    expect(created.acceptanceCriteria).toEqual(['First criterion', 'Second criterion']);
+  });
+
+  it('POST /requirements with comma-separated dependencies saves dependencies', async () => {
+    // Create a dependency requirement first
+    const dep = reqSvc.createRequirement({
+      title: 'Dep',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+
+    const res = await request(app)
+      .post('/requirements')
+      .type('form')
+      .send({
+        title: 'With Deps',
+        description: '',
+        priority: '3',
+        acceptanceCriteria: '',
+        dependencies: dep.id,
+      });
+
+    expect(res.status).toBe(303);
+    const createdId = /** @type {string} */ (res.headers['location']).split('/').pop();
+    const created = reqSvc.getRequirement({ id: String(createdId) });
+    expect(created.dependencies).toEqual([dep.id]);
+  });
+
+  it('GET /requirements/:id with acceptance criteria renders criteria list', async () => {
+    const withCriteria = reqSvc.createRequirement({
+      title: 'With AC',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: ['Criterion A', 'Criterion B'],
+      dependencies: [],
+    });
+
+    const res = await request(app).get(`/requirements/${withCriteria.id}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Criterion A');
+    expect(res.text).toContain('Criterion B');
+  });
+
+  it('GET /requirements/:id with dependencies renders dependency links', async () => {
+    const dep = reqSvc.createRequirement({
+      title: 'Dep Req',
+      description: '',
+      priority: 1,
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const withDeps = reqSvc.createRequirement({
+      title: 'Has Deps',
+      description: '',
+      priority: 2,
+      acceptanceCriteria: [],
+      dependencies: [dep.id],
+    });
+
+    const res = await request(app).get(`/requirements/${withDeps.id}`);
+    expect(res.status).toBe(200);
+    // The dependency ID should appear in the rendered page
+    expect(res.text).toContain(dep.id);
+  });
+
+  // ---------------------------------------------------------------------------
+  // New-task form route (views/tasks.js taskForm with task=undefined)
+  // ---------------------------------------------------------------------------
+
+  it('GET /requirements/:reqId/tasks/new returns 200 with new task form', async () => {
+    const res = await request(app).get(`/requirements/${reqId}/tasks/new`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('New Task');
+    expect(res.text).toContain('Create Task');
+  });
+
+  it('GET /requirements/:reqId/tasks/new for unknown requirement returns 400', async () => {
+    const res = await request(app).get('/requirements/req-99999/tasks/new');
+    expect(res.status).toBe(400);
+  });
+
+  // ---------------------------------------------------------------------------
+  // InProgress task detail (views/tasks.js inProgressForms)
+  // ---------------------------------------------------------------------------
+
+  it('GET /tasks/:id for InProgress task renders complete/release forms', async () => {
+    await request(app).post(`/tasks/${taskId}/pick`).type('form').send({ agentId: 'agent-x' });
+
+    const res = await request(app).get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Complete Task');
+    expect(res.text).toContain('Release Task');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task with dependencies (views/tasks.js dependencies non-empty branch, line 18)
+  // ---------------------------------------------------------------------------
+
+  it('GET /tasks/:id for task with dependencies renders dependency IDs', async () => {
+    const depTask = taskSvc.createTask({
+      parentReqId: reqId,
+      title: 'Dep Task',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [],
+    });
+    const depOnTask = taskSvc.createTask({
+      parentReqId: reqId,
+      title: 'Depends On Dep',
+      description: '',
+      acceptanceCriteria: [],
+      dependencies: [depTask.id],
+    });
+
+    const res = await request(app).get(`/tasks/${depOnTask.id}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(depTask.id);
+  });
+
+  it('GET /tasks/:id for task with acceptance criteria renders criteria list', async () => {
+    const taskWithAc = taskSvc.createTask({
+      parentReqId: reqId,
+      title: 'Task With AC',
+      description: '',
+      acceptanceCriteria: ['Must pass', 'Must be fast'],
+      dependencies: [],
+    });
+
+    const res = await request(app).get(`/tasks/${taskWithAc.id}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Must pass');
+    expect(res.text).toContain('Must be fast');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Non-matrix errors → 500 (web/server.js renderError line 367)
+  // ---------------------------------------------------------------------------
+
+  it('non-matrix errors are rendered as 500 Internal Server Error', async () => {
+    const freshDb = makeDb();
+    const freshApp = createApp(freshDb, { disableCsrf: true });
+    freshDb.close(); // force a native (non-MatrixError) exception on all DB calls
+    const res = await request(freshApp).get('/requirements');
+    expect(res.status).toBe(500);
+    expect(res.text).toContain('INTERNAL_ERROR');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Validation errors on update routes
+  // ---------------------------------------------------------------------------
+
+  it('POST /requirements/:id/update with invalid data returns 400', async () => {
+    const res = await request(app)
+      .post(`/requirements/${reqId}/update`)
+      .type('form')
+      .send({
+        title: '', // title required
+        description: '',
+        priority: '3',
+        acceptanceCriteria: '',
+        dependencies: '',
+      });
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Validation Error');
+  });
+
+  it('POST /tasks/:id/update with invalid data returns 400', async () => {
+    const res = await request(app)
+      .post(`/tasks/${taskId}/update`)
+      .type('form')
+      .send({ title: '' }); // title required
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Validation Error');
+  });
+
+  it('POST /tasks/:id/pick with missing agentId returns 400', async () => {
+    const res = await request(app)
+      .post(`/tasks/${taskId}/pick`)
+      .type('form')
+      .send({ agentId: '' }); // empty agentId fails schema
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Validation Error');
+  });
+
+  it('POST /tasks/:id/complete with missing agentId returns 400', async () => {
+    await request(app).post(`/tasks/${taskId}/pick`).type('form').send({ agentId: 'agent-a' });
+    const res = await request(app)
+      .post(`/tasks/${taskId}/complete`)
+      .type('form')
+      .send({ agentId: '' });
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Validation Error');
+  });
+
+  it('POST /tasks/:id/release with missing agentId returns 400', async () => {
+    await request(app).post(`/tasks/${taskId}/pick`).type('form').send({ agentId: 'agent-a' });
+    const res = await request(app)
+      .post(`/tasks/${taskId}/release`)
+      .type('form')
+      .send({ agentId: '' });
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Validation Error');
+  });
+
+  it('POST /tasks/invalid-id/force-release returns 400 on schema failure', async () => {
+    // 'invalid-id' does not match the idSchema regex, triggering the validation error branch
+    const res = await request(app)
+      .post('/tasks/invalid-id/force-release')
+      .type('form')
+      .send();
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Validation Error');
+  });
+
+  // ---------------------------------------------------------------------------
+  // CSRF enforcement
+  // ---------------------------------------------------------------------------
+
   describe('CSRF enforcement', () => {
     it('POST mutation without a CSRF token is rejected with 403 when CSRF is enabled', async () => {
       const csrfApp = createApp(db);
@@ -314,6 +577,43 @@ describe('web server', () => {
           dependencies: '',
         });
       expect(res.status).toBe(403);
+    });
+
+    it('GET /requirements/new with CSRF enabled returns 200 and sets CSRF cookie', async () => {
+      const csrfApp = createApp(db); // CSRF enabled
+      const res = await request(csrfApp).get('/requirements/new');
+      expect(res.status).toBe(200);
+      expect(res.headers['set-cookie']).toBeDefined();
+    });
+
+    it('GET /requirements/:id with CSRF enabled returns 200 and sets CSRF cookie', async () => {
+      const csrfApp = createApp(db);
+      const res = await request(csrfApp).get(`/requirements/${reqId}`);
+      expect(res.status).toBe(200);
+    });
+
+    it('GET /requirements/:id/edit with CSRF enabled returns 200', async () => {
+      const csrfApp = createApp(db);
+      const res = await request(csrfApp).get(`/requirements/${reqId}/edit`);
+      expect(res.status).toBe(200);
+    });
+
+    it('GET /tasks/:id with CSRF enabled returns 200', async () => {
+      const csrfApp = createApp(db);
+      const res = await request(csrfApp).get(`/tasks/${taskId}`);
+      expect(res.status).toBe(200);
+    });
+
+    it('GET /tasks/:id/edit with CSRF enabled returns 200', async () => {
+      const csrfApp = createApp(db);
+      const res = await request(csrfApp).get(`/tasks/${taskId}/edit`);
+      expect(res.status).toBe(200);
+    });
+
+    it('GET /requirements/:reqId/tasks/new with CSRF enabled returns 200', async () => {
+      const csrfApp = createApp(db);
+      const res = await request(csrfApp).get(`/requirements/${reqId}/tasks/new`);
+      expect(res.status).toBe(200);
     });
   });
 });

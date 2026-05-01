@@ -41,18 +41,19 @@ export function mapTaskRow(db, row) {
   const createdAt = row['created_at'];
   const updatedAt = row['updated_at'];
   const assignedToRaw = row['assigned_to'];
+  const { description = '' } = row;
 
   return {
     id: String(row['id']),
     parentReqId: String(row['parent_req_id']),
     title: String(row['title']),
-    description: String(row['description'] ?? ''),
+    description: String(description),
     status: /** @type {'ToDo' | 'InProgress' | 'Done'} */ (String(row['status'])),
     acceptanceCriteria: parseAcceptanceCriteria(row),
     dependencies: getTaskDependencies(db, String(row['id'])),
     assignedTo: typeof assignedToRaw === 'string' ? assignedToRaw : undefined,
-    createdAt: new Date(typeof createdAt === 'string' ? createdAt : String(createdAt)),
-    updatedAt: new Date(typeof updatedAt === 'string' ? updatedAt : String(updatedAt)),
+    createdAt: new Date(String(createdAt)),
+    updatedAt: new Date(String(updatedAt)),
   };
 }
 
