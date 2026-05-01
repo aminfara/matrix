@@ -8,6 +8,13 @@ updates:
       day: monday
     open-pull-requests-limit: 10
     versioning-strategy: increase-if-necessary
+    ignore:
+      # Pin Node type definitions: must stay aligned with the Node.js LTS version in use
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # Pin tsconfig presets: node-lts major bumps change target/lib settings significantly
+      - dependency-name: '@tsconfig/*'
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
@@ -23,4 +30,4 @@ updates:
     groups:
       github-actions:
         patterns:
-          - "*"
+          - '*'

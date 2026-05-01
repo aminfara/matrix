@@ -1,6 +1,6 @@
 {
   "name": "matrix-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A local, project-scoped Requirement Management MCP server",
   "homepage": "https://github.com/aminfara/matrix#readme",
   "keywords": [
@@ -64,7 +64,7 @@
     "@tsconfig/node-lts": "^22.0.0",
     "@tsconfig/strictest": "^2.0.8",
     "@types/cookie-parser": "^1.4.10",
-    "@types/express": "^4.17",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.0.0",
     "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^4.1.5",
@@ -74,12 +74,12 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.1.0",
+    "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "commander": "^12.1.0",
+    "commander": "^14.0.3",
     "cookie-parser": "^1.4.7",
-    "csrf-csrf": "^3.2.2",
-    "express": "^4.21.0",
+    "csrf-csrf": "^4.0.3",
+    "express": "^5.2.1",
     "helmet": "^8.1.0",
     "zod": "^4.3.6"
   }

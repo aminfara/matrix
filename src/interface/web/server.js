@@ -34,8 +34,9 @@ export function createApp(db, options = {}) {
   const requirements = getRequirementsService(db);
   const tasks = getTasksService(db);
   const workflow = getTaskWorkflowService(db);
-  const { doubleCsrfProtection, generateToken } = doubleCsrf({
+  const { doubleCsrfProtection, generateCsrfToken } = doubleCsrf({
     getSecret: () => CSRF_SECRET,
+    getSessionIdentifier: (req) => req.ip ?? '',
     cookieName: 'x-csrf-token',
     cookieOptions: {
       sameSite: 'strict',
@@ -85,7 +86,7 @@ export function createApp(db, options = {}) {
 
   app.get('/requirements/new', (req, res) => {
     try {
-      const csrfToken = disableCsrf ? '' : generateToken(req, res);
+      const csrfToken = disableCsrf ? '' : generateCsrfToken(req, res);
       res.status(200).send(layout('New Requirement', requirementForm(undefined, csrfToken)));
     } catch (error) {
       renderError(res, error);
@@ -118,7 +119,7 @@ export function createApp(db, options = {}) {
 
   app.get('/requirements/:id', (req, res) => {
     try {
-      const csrfToken = disableCsrf ? '' : generateToken(req, res);
+      const csrfToken = disableCsrf ? '' : generateCsrfToken(req, res);
       const requirement = requirements.getRequirement({ id: req.params.id });
       const reqTasks = tasks.listTasks({ parentReqId: requirement.id });
       res
@@ -131,7 +132,7 @@ export function createApp(db, options = {}) {
 
   app.get('/requirements/:id/edit', (req, res) => {
     try {
-      const csrfToken = disableCsrf ? '' : generateToken(req, res);
+      const csrfToken = disableCsrf ? '' : generateCsrfToken(req, res);
       const requirement = requirements.getRequirement({ id: req.params.id });
       res.status(200).send(layout('Edit Requirement', requirementForm(requirement, csrfToken)));
     } catch (error) {
@@ -175,7 +176,7 @@ export function createApp(db, options = {}) {
 
   app.get('/requirements/:reqId/tasks/new', (req, res) => {
     try {
-      const csrfToken = disableCsrf ? '' : generateToken(req, res);
+      const csrfToken = disableCsrf ? '' : generateCsrfToken(req, res);
       const requirement = requirements.getRequirement({ id: req.params.reqId });
       res.status(200).send(layout('New Task', taskForm(undefined, requirement, csrfToken)));
     } catch (error) {
@@ -209,7 +210,7 @@ export function createApp(db, options = {}) {
 
   app.get('/tasks/:id', (req, res) => {
     try {
-      const csrfToken = disableCsrf ? '' : generateToken(req, res);
+      const csrfToken = disableCsrf ? '' : generateCsrfToken(req, res);
       const task = tasks.getTask({ id: req.params.id });
       const requirement = requirements.getRequirement({ id: task.parentReqId });
       res.status(200).send(layout(task.title, taskDetail(task, requirement, csrfToken)));
@@ -220,7 +221,7 @@ export function createApp(db, options = {}) {
 
   app.get('/tasks/:id/edit', (req, res) => {
     try {
-      const csrfToken = disableCsrf ? '' : generateToken(req, res);
+      const csrfToken = disableCsrf ? '' : generateCsrfToken(req, res);
       const task = tasks.getTask({ id: req.params.id });
       const requirement = requirements.getRequirement({ id: task.parentReqId });
       res.status(200).send(layout('Edit Task', taskForm(task, requirement, csrfToken)));
