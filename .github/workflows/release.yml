@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version-type:
+        description: 'Version bump type'
+        required: true
+        default: minor
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+  schedule:
+    # 09:00 UTC on the 1st of every month
+    - cron: '0 9 1 * *'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history needed so `npm version` can push the tag
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          HUSKY: 0
+
+      - name: Check for new commits since last tag (scheduled runs only)
+        if: github.event_name == 'schedule'
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            CHANGES=$(git log "${LAST_TAG}..HEAD" --oneline | wc -l | tr -d ' ')
+            if [ "$CHANGES" -eq "0" ]; then
+              echo "No new commits since ${LAST_TAG} — skipping release."
+              exit 0
+            fi
+            echo "Found ${CHANGES} commit(s) since ${LAST_TAG}."
+          fi
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Determine version type
+        id: version-type
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=${{ inputs.version-type }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and tag
+        run: 'npm version ${{ steps.version-type.outputs.type }} -m "chore: release %s"'
+
+      - name: Push commit and tag
+        run: git push --follow-tags
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --generate-notes

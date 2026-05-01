@@ -34,7 +34,8 @@
   "scripts": {
     "typecheck": "tsc --project jsconfig.json --noEmit",
     "test": "vitest run",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "prepare": "husky"
   },
   "vitest": {
     "coverage": {
@@ -67,6 +68,7 @@
     "@types/node": "^22.0.0",
     "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^4.1.5",
+    "husky": "^9.1.7",
     "supertest": "^7.2.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
