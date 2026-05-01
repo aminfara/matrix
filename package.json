@@ -1,6 +1,6 @@
 {
   "name": "matrix-mcp",
-  "version": "0.0.1",
+  "version": "0.1.1",
   "description": "A local, project-scoped Requirement Management MCP server",
   "homepage": "https://github.com/aminfara/matrix#readme",
   "keywords": [
@@ -25,8 +25,8 @@
     "node": ">=22.5.0"
   },
   "bin": {
-    "matrix-mcp": "./src/server.js",
-    "matrix-mcp-cli": "./src/interface/cli.js"
+    "matrix-mcp": "src/server.js",
+    "matrix-mcp-cli": "src/interface/cli.js"
   },
   "files": [
     "src/"
@@ -39,9 +39,18 @@
   "vitest": {
     "coverage": {
       "provider": "v8",
-      "include": ["src/**"],
-      "exclude": ["src/server.js", "src/interface/cli.js"],
-      "reporter": ["text", "lcov", "html"],
+      "include": [
+        "src/**"
+      ],
+      "exclude": [
+        "src/server.js",
+        "src/interface/cli.js"
+      ],
+      "reporter": [
+        "text",
+        "lcov",
+        "html"
+      ],
       "thresholds": {
         "statements": 90,
         "branches": 80,
